@@ -1,0 +1,57 @@
+---
+###############################################################
+# Pre pull image for kubeadm initialization e.g. kube-apiserver, kube-controller-manager, kube-scheduler, etcd
+# Initializes the Kubernetes master node
+###############################################################
+- name: Kubeadm config images pull
+  command: kubeadm config images pull --kubernetes-version={{ k8s_version }}
+
+- name: Initialize Kubernetes master node
+  command: kubeadm init --kubernetes-version={{ k8s_version }} --pod-network-cidr=192.168.0.0/16 --cri-socket="/run/containerd/containerd.sock"
+  args:
+    creates: /etc/kubernetes/admin.conf
+
+###############################################################
+# Let user 'ubuntu' use kubectl
+###############################################################
+- name: Create .kube directory for ubuntu user
+  file:
+    path: /home/ubuntu/.kube
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: 0755
+
+- name: Copy kubeconfig to ubuntu user
+  copy:
+    src: /etc/kubernetes/admin.conf
+    dest: /home/ubuntu/.kube/config
+    remote_src: yes
+    owner: ubuntu
+    group: ubuntu
+    mode: 0644
+
+###############################################################
+# Install Calico CNI
+###############################################################
+- name: 安裝 Calico CNI - 安裝 tigera-operator
+  command: kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.3/manifests/tigera-operator.yaml
+  become_user: ubuntu
+
+- name: 安裝 Calico CNI - 安裝 custom-resources
+  command: kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.3/manifests/custom-resources.yaml
+  become_user: ubuntu
+
+###############################################################
+# Generate kubeadm join command
+# This command will be used by worker nodes to join the cluster
+# The command is registered as a global fact for use in other roles
+###############################################################
+- name: Generate kubeadm join command
+  command: kubeadm token create --print-join-command
+  register: kube_join_command
+
+- name: Set join command as global fact
+  set_fact:
+    kube_join_command_global: '{{ kube_join_command.stdout }}'
+  run_once: true

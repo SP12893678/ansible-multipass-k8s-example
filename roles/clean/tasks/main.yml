@@ -1,0 +1,42 @@
+---
+- name: Check if kubeadm is installed
+  command: which kubeadm
+  register: kubeadm_installed
+  ignore_errors: true
+
+- name: Reset kubeadm if installed
+  command: kubeadm reset -f
+  when: kubeadm_installed.rc == 0
+
+- name: Remove Kubernetes-related directories
+  file:
+    path: '{{ item }}'
+    state: absent
+  loop:
+    - /etc/kubernetes
+    - /var/lib/etcd
+    - /var/lib/kubelet
+    - /var/lib/cni
+    - /var/run/kubernetes
+    - /root/.kube
+    - /home/ubuntu/.kube
+    - /opt/cni
+    - /etc/cni
+    - /opt/kube-bench
+    - /usr/local/bin/kube-bench
+
+# - name: Flush iptables
+#   command: iptables -F
+
+- name: Restart container runtime
+  systemd:
+    name: containerd
+    state: restarted
+    enabled: true
+  ignore_errors: true
+
+- name: Restart kubelet
+  systemd:
+    name: kubelet
+    state: restarted
+  ignore_errors: true

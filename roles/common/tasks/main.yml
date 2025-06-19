@@ -1,0 +1,110 @@
+---
+- name: Install prerequisite packages
+  apt:
+    name:
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+    state: present
+    update_cache: yes
+
+- name: Install containerd
+  apt:
+    name: containerd
+    state: present
+
+###############################################################
+# Configure containerd
+# This task ensures that containerd is configured to use the systemd cgroup driver
+# Reference:https://kubernetes.io/zh-cn/docs/setup/production-environment/container-runtimes/#containerd
+###############################################################
+- name: Generate containerd config if not exists
+  shell: |
+    mkdir -p /etc/containerd
+    containerd config default > /etc/containerd/config.toml
+  args:
+    creates: /etc/containerd/config.toml
+
+- name: Update containerd config to use systemd cgroup driver
+  replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup = false'
+    replace: 'SystemdCgroup = true'
+
+- name: Restart containerd
+  systemd:
+    name: containerd
+    state: restarted
+    enabled: true
+
+###############################################################
+# Disable swap on the Linux system
+# Kubernetes requires swap to be disabled
+# Reference: https://discuss.kubernetes.io/t/swap-off-why-is-it-necessary/6879
+###############################################################
+- name: Disable swap
+  command: swapoff -a
+  ignore_errors: true
+
+- name: Comment out swap in /etc/fstab
+  replace:
+    path: /etc/fstab
+    regexp: '^([^#].*swap.*)$'
+    replace: '# \1'
+
+###############################################################
+# Install k8s packages
+# Reference: https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
+###############################################################
+- name: 建立 apt keyring 目錄
+  file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: '0755'
+
+- name: 下載並轉換 GPG 金鑰為 .gpg 格式
+  shell: |
+    curl -fsSL https://pkgs.k8s.io/core:/stable:/v{{ k8s_version_major_minor }}/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+  args:
+    creates: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+- name: 建立 Kubernetes APT repository
+  copy:
+    dest: /etc/apt/sources.list.d/kubernetes.list
+    content: |
+      deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v{{ k8s_version_major_minor }}/deb/ /
+    mode: '0644'
+
+- name: 更新 apt 快取
+  apt:
+    update_cache: yes
+
+- name: 安裝指定版本的 kubeadm, kubelet, kubectl
+  apt:
+    name:
+      - 'kubeadm={{ k8s_version_full }}'
+      - 'kubelet={{ k8s_version_full }}'
+      - 'kubectl={{ k8s_version_full }}'
+    state: present
+
+- name: 鎖定 Kubernetes 套件版本
+  dpkg_selections:
+    name: '{{ item }}'
+    selection: hold
+  loop:
+    - kubelet
+    - kubeadm
+    - kubectl
+
+###############################################################
+# Enable IPv4 packet forwarding
+# Reference: https://kubernetes.io/docs/setup/production-environment/container-runtimes/#prerequisite-ipv4-forwarding-optional
+###############################################################
+- name: Enable IP forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    state: present
+    reload: yes

@@ -1,0 +1,3 @@
+---
+- name: Join worker to cluster
+  command: "{{ hostvars['k8s-master'].kube_join_command_global }}"

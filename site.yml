@@ -1,0 +1,33 @@
+---
+###############################################################
+# Clean up and prepare Kubernetes environment
+###############################################################
+- name: Clean up Kubernetes environment
+  hosts: all
+  become: true
+  roles:
+    - clean
+
+- name: Prepare all nodes (common setup)
+  hosts: all
+  become: true
+  roles:
+    - common
+
+###############################################################
+# Setup Kubernetes cluster
+###############################################################
+- name: Setup Kubernetes master
+  hosts: k8s-masters
+  become: true
+  roles:
+    - master
+
+###############################################################
+# Join Kubernetes workers to the cluster
+###############################################################
+- name: Join Kubernetes workers
+  hosts: k8s-workers
+  become: true
+  roles:
+    - worker
